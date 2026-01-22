@@ -1,0 +1,52 @@
+{
+  "kind": "collectionType",
+  "collectionName": "topups",
+  "info": {
+    "singularName": "topup",
+    "pluralName": "topups",
+    "displayName": "topup"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "amountUsd": {
+      "type": "decimal"
+    },
+    "amoutnAmd": {
+      "type": "decimal"
+    },
+    "user": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user",
+      "inversedBy": "topups"
+    },
+    "provider": {
+      "type": "string"
+    },
+    "providerRef": {
+      "type": "string"
+    },
+    "statuss": {
+      "type": "enumeration",
+      "enum": [
+        "pending",
+        "paid",
+        "failed",
+        "refunded"
+      ]
+    },
+    "processed": {
+      "type": "boolean",
+      "default": false
+    },
+    "payAddress": {
+      "type": "string"
+    },
+    "payNetwork": {
+      "type": "string"
+    }
+  }
+}

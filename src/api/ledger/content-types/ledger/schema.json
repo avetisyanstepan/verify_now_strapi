@@ -1,0 +1,44 @@
+{
+  "kind": "collectionType",
+  "collectionName": "ledgers",
+  "info": {
+    "singularName": "ledger",
+    "pluralName": "ledgers",
+    "displayName": "ledger"
+  },
+  "options": {
+    "draftAndPublish": true
+  },
+  "pluginOptions": {},
+  "attributes": {
+    "user": {
+      "type": "relation",
+      "relation": "manyToOne",
+      "target": "plugin::users-permissions.user",
+      "inversedBy": "ledgers"
+    },
+    "type": {
+      "type": "enumeration",
+      "enum": [
+        "topup",
+        "debit",
+        "refund"
+      ]
+    },
+    "amountUsd": {
+      "type": "decimal"
+    },
+    "reason": {
+      "type": "string"
+    },
+    "refId": {
+      "type": "string"
+    },
+    "balanceAfterUsd": {
+      "type": "decimal"
+    },
+    "refType": {
+      "type": "string"
+    }
+  }
+}
