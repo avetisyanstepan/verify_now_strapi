@@ -639,10 +639,11 @@ export interface ApiTopupTopup extends Struct.CollectionTypeSchema {
     payNetwork: Schema.Attribute.String;
     processed: Schema.Attribute.Boolean & Schema.Attribute.DefaultTo<false>;
     provider: Schema.Attribute.String;
+    providerPayload: Schema.Attribute.JSON;
     providerRef: Schema.Attribute.String;
     publishedAt: Schema.Attribute.DateTime;
     statuss: Schema.Attribute.Enumeration<
-      ['pending', 'paid', 'failed', 'refunded']
+      ['pending', 'paid', 'failed', 'refunded', 'partially_paid', 'expired']
     >;
     updatedAt: Schema.Attribute.DateTime;
     updatedBy: Schema.Attribute.Relation<'oneToOne', 'admin::user'> &

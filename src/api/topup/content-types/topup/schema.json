@@ -35,7 +35,9 @@
         "pending",
         "paid",
         "failed",
-        "refunded"
+        "refunded",
+        "partially_paid",
+        "expired"
       ]
     },
     "processed": {
@@ -47,6 +49,9 @@
     },
     "payNetwork": {
       "type": "string"
+    },
+    "providerPayload": {
+      "type": "json"
     }
   }
 }
