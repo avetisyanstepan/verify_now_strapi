@@ -28,8 +28,12 @@ const got = ctx.get("x-internal-secret");
     if (Number(topupUserId) !== Number(uid)) return ctx.forbidden("TOPUP_USER_MISMATCH");
 
     // начисляем только если paid
-    if (String(topup.statuss) !== "paid") return ctx.badRequest("TOPUP_NOT_PAID");
-
+if (String(topup.statuss) !== "paid") {
+  await strapi.db.query("api::topup.topup").update({
+    where: { id: topup.id },
+    data: { statuss: "paid" },
+  });
+}
     // 2) Проверка на дубль: уже есть ledger по refId=topup.id
     const existing = await strapi.db.query("api::ledger.ledger").findOne({
       where: {
