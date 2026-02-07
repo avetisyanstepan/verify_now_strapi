@@ -56,6 +56,9 @@
     "refunded": {
       "type": "boolean",
       "default": false
+    },
+    "phone": {
+      "type": "string"
     }
   }
 }

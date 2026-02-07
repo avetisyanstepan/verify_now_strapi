@@ -33,6 +33,7 @@ if (String(topup.statuss) !== "paid") {
     where: { id: topup.id },
     data: { statuss: "paid" },
   });
+  topup.statuss = "paid";
 }
     // 2) Проверка на дубль: уже есть ledger по refId=topup.id
     const existing = await strapi.db.query("api::ledger.ledger").findOne({

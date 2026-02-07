@@ -519,6 +519,7 @@ export interface ApiActivationActivation extends Struct.CollectionTypeSchema {
       'api::activation.activation'
     > &
       Schema.Attribute.Private;
+    phone: Schema.Attribute.String;
     priceUsd: Schema.Attribute.Decimal;
     providerAccessId: Schema.Attribute.String;
     publishedAt: Schema.Attribute.DateTime;
