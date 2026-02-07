@@ -7,12 +7,8 @@ function minutesAgoDate(mins) {
 async function smsFetch(apiKey, params) {
   const url = new URL(SMS_URL);
   url.searchParams.set("api_key", apiKey);
-
-  Object.entries(params).forEach(([k, v]) => {
-    url.searchParams.set(k, v);
-  });
-
-  const res = await fetch(url.toString());
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  const res = await fetch(url.toString(), { cache: "no-store" });
   return (await res.text()).trim();
 }
 
@@ -22,15 +18,12 @@ module.exports = {
       strapi.log.info("[CRON] tick " + new Date().toISOString());
 
       const SMS_KEY = process.env.SMSVERIFIED_API_KEY;
-
       if (!SMS_KEY) {
         strapi.log.warn("[CRON] SMSVERIFIED_API_KEY missing");
         return;
       }
 
-      const cutoff = minutesAgoDate(1);
-
-      // 🔎 ищем старые created без code
+      const cutoff = minutesAgoDate(10); // верни 10 после теста (или оставь 10)
       const activations = await strapi.db
         .query("api::activation.activation")
         .findMany({
@@ -41,7 +34,8 @@ module.exports = {
             $or: [{ code: null }, { code: "" }],
           },
           populate: { user: true },
-          limit: 100,
+          limit: 200,
+          orderBy: { createdAt: "asc" },
         });
 
       if (!activations.length) return;
@@ -49,60 +43,67 @@ module.exports = {
       strapi.log.info(`[CRON] Found ${activations.length} expired activations`);
 
       for (const a of activations) {
+        const activationId = a.id;
+        const providerAccessId = a.providerAccessId;
+        const userId = a.user?.id;
+
+        if (!activationId || !providerAccessId || !userId) continue;
+
+        // 1) cancel у провайдера (можно оставить до транзакции)
+        let providerRaw = "";
         try {
-          const providerAccessId = a.providerAccessId;
-          const priceUsd = Number(a.priceUsd || 0);
-          const userId = a.user?.id;
+          providerRaw = await smsFetch(SMS_KEY, {
+            action: "setStatus",
+            id: String(providerAccessId),
+            status: "8",
+          });
+        } catch (err) {
+          providerRaw = "PROVIDER_CANCEL_FAILED";
+        }
 
-          if (!providerAccessId || !userId) continue;
-
-          // 1️⃣ cancel у провайдера
-          let providerRaw = "";
-          try {
-            providerRaw = await smsFetch(SMS_KEY, {
-              action: "setStatus",
-              id: providerAccessId,
-              status: "8",
-            });
-          } catch (err) {
-            providerRaw = "PROVIDER_CANCEL_FAILED";
-          }
-
-          // 2️⃣ транзакция refund + update activation
+        try {
           await strapi.db.transaction(async (trx) => {
-            const actQuery = strapi.db.query("api::activation.activation");
-            const userQuery = strapi.db.query(
-              "plugin::users-permissions.user"
-            );
+            const actQ = strapi.db.query("api::activation.activation");
+            const userQ = strapi.db.query("plugin::users-permissions.user");
 
-            const fresh = await actQuery.findOne({
-              where: { id: a.id },
+            // 2) читаем свежую запись
+            const fresh = await actQ.findOne({
+              where: { id: activationId },
               populate: { user: true },
               transacting: trx,
             });
 
-            if (!fresh || fresh.refunded) return;
+            if (!fresh) return;
 
-            // 💰 refund
-            if (priceUsd > 0) {
-              const user = await userQuery.findOne({
-                where: { id: userId },
+            // если уже refunded — выходим (защита)
+            if (fresh.refunded) return;
+
+            // если SMS пришла — не возвращаем
+            const code = String(fresh.code || "").trim();
+            if (code) {
+              // но статус всё равно можно поставить canceled
+              await actQ.update({
+                where: { id: activationId },
+                data: { statuss: "canceled", rawLastStatus: providerRaw },
                 transacting: trx,
               });
-
-              const current = Number(user.balanceUsd || 0);
-              const next = +(current + priceUsd).toFixed(6);
-
-              await userQuery.update({
-                where: { id: userId },
-                data: { balanceUsd: next },
-                transacting: trx,
-              });
+              return;
             }
 
-            // 🔄 update activation
-            await actQuery.update({
-              where: { id: a.id },
+            const priceUsd = Number(fresh.priceUsd || 0);
+            if (!Number.isFinite(priceUsd) || priceUsd <= 0) {
+              // нечего возвращать — просто canceled
+              await actQ.update({
+                where: { id: activationId },
+                data: { statuss: "canceled", rawLastStatus: providerRaw },
+                transacting: trx,
+              });
+              return;
+            }
+
+            // 3) "лок" — атомарно помечаем activation как refunded=true (пока мы в транзакции)
+            await actQ.update({
+              where: { id: activationId },
               data: {
                 statuss: "canceled",
                 refunded: true,
@@ -110,6 +111,26 @@ module.exports = {
               },
               transacting: trx,
             });
+
+            // 4) делаем refund пользователю
+            const u = await userQ.findOne({
+              where: { id: userId },
+              transacting: trx,
+            });
+            if (!u) return;
+
+            const cur = Number(u.balanceUsd || 0);
+            const next = +(cur + priceUsd).toFixed(6);
+
+            await userQ.update({
+              where: { id: userId },
+              data: { balanceUsd: next },
+              transacting: trx,
+            });
+
+            strapi.log.info(
+              `[CRON] refunded activation=${activationId} user=${userId} +${priceUsd} => ${next}`
+            );
           });
         } catch (err) {
           strapi.log.error("[CRON ERROR]", err);
@@ -118,8 +139,7 @@ module.exports = {
     },
 
     options: {
-      // ⏱ каждые 60 секунд
-      rule: "*/1 * * * *",
+      rule: "*/1 * * * *", // раз в минуту (надёжно)
     },
   },
 };
