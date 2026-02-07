@@ -19,6 +19,8 @@ async function smsFetch(apiKey, params) {
 module.exports = {
   autoCancelActivations: {
     task: async ({ strapi }) => {
+      strapi.log.info("[CRON] tick " + new Date().toISOString());
+
       const SMS_KEY = process.env.SMSVERIFIED_API_KEY;
 
       if (!SMS_KEY) {
@@ -26,7 +28,7 @@ module.exports = {
         return;
       }
 
-      const cutoff = minutesAgoDate(10);
+      const cutoff = minutesAgoDate(1);
 
       // 🔎 ищем старые created без code
       const activations = await strapi.db
@@ -117,7 +119,7 @@ module.exports = {
 
     options: {
       // ⏱ каждые 60 секунд
-      rule: "0 * * * * *",
+      rule: "*/1 * * * *",
     },
   },
 };
