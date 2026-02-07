@@ -41,10 +41,10 @@
         "created",
         "wait_code",
         "ok",
-        "cancel",
-        "createdno_activation",
+        "canceled",
+        "expired",
         "failed",
-        "closed"
+        "no_activation"
       ]
     },
     "code": {

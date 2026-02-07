@@ -532,10 +532,10 @@ export interface ApiActivationActivation extends Struct.CollectionTypeSchema {
         'created',
         'wait_code',
         'ok',
-        'cancel',
-        'createdno_activation',
+        'canceled',
+        'expired',
         'failed',
-        'closed',
+        'no_activation',
       ]
     >;
     updatedAt: Schema.Attribute.DateTime;
