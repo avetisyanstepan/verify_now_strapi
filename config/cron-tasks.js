@@ -7,11 +7,7 @@ function minutesAgoDate(mins) {
 async function smsFetch(apiKey, params) {
   const url = new URL(SMS_URL);
   url.searchParams.set("api_key", apiKey);
-
-  for (const [k, v] of Object.entries(params)) {
-    url.searchParams.set(k, String(v));
-  }
-
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, String(v));
   const res = await fetch(url.toString(), { cache: "no-store" });
   return (await res.text()).trim();
 }
@@ -29,12 +25,12 @@ module.exports = {
 
       const cutoff = minutesAgoDate(10);
 
-      // 1) Берём все entries, которые подходят (в Strapi 5 их может быть 2 на 1 document)
+      // 1) Берём entries (в Strapi 5 может быть 2 entries на 1 document)
       const entries = await strapi.db
         .query("api::activation.activation")
         .findMany({
           where: {
-            statuss: "wait_code", // ✅ только ожидание SMS
+            statuss: "created",          // ✅ ТОЛЬКО created
             refunded: false,
             createdAt: { $lt: cutoff },
             $or: [{ code: null }, { code: "" }],
@@ -46,26 +42,23 @@ module.exports = {
 
       if (!entries.length) return;
 
-      // 2) ✅ Дедуп по documentId (1 документ = 1 обработка)
-      const seen = new Set();
-      const docs = [];
+      // 2) ✅ дедуп по documentId (иначе будет 1=>2 из-за draft/publish)
+      const byDoc = {};
       for (const a of entries) {
-        const docId = a.documentId || String(a.id);
-        if (seen.has(docId)) continue;
-        seen.add(docId);
-        docs.push(a);
+        const key = a.documentId ? String(a.documentId) : "id_" + String(a.id);
+        if (!byDoc[key]) byDoc[key] = a;
       }
+      const docs = Object.values(byDoc);
 
       strapi.log.info(
         `[CRON] candidates entries=${entries.length} docs=${docs.length}`
       );
 
-      // 3) Обрабатываем каждый document один раз
+      // 3) обрабатываем каждый document один раз
       for (const a of docs) {
         const documentId = a.documentId;
         const providerAccessId = a.providerAccessId;
 
-        // Без documentId мы не сможем обновить все версии — пропускаем
         if (!documentId || !providerAccessId) continue;
 
         // 3.1) cancel у провайдера
@@ -81,45 +74,40 @@ module.exports = {
         }
 
         try {
-          // 3.2) Транзакция: refund + update всех версий
           await strapi.db.transaction(async (trx) => {
             const actQ = strapi.db.query("api::activation.activation");
             const userQ = strapi.db.query("plugin::users-permissions.user");
 
-            // Берём все версии этого documentId (draft + published)
+            // все версии одного documentId (draft + published)
             const versions = await actQ.findMany({
               where: { documentId },
               populate: { user: true },
               transacting: trx,
             });
 
-            if (!versions || !versions.length) return;
+            if (!versions?.length) return;
 
-            // Если хотя бы одна уже refunded=true — значит уже обработано
+            // если уже обработано — выходим
             if (versions.some((v) => v.refunded === true)) return;
 
-            // Берём данные из первой версии
             const v0 = versions[0];
             const userId = v0.user?.id || v0.user;
             const code = String(v0.code || "").trim();
             const priceUsd = Number(v0.priceUsd || 0);
 
-            // Если SMS уже пришёл — refund не делаем, но все версии cancel
+            // если SMS уже есть — refund не делаем, но cancel проставим
             if (code) {
               for (const v of versions) {
                 await actQ.update({
                   where: { id: v.id },
-                  data: {
-                    statuss: "canceled",
-                    rawLastStatus: providerRaw,
-                  },
+                  data: { statuss: "canceled", rawLastStatus: providerRaw },
                   transacting: trx,
                 });
               }
               return;
             }
 
-            // 1) ✅ Ставим canceled + refunded=true на всех версиях (lock от дублей)
+            // ✅ lock: сначала всем версиям ставим refunded=true + canceled
             for (const v of versions) {
               await actQ.update({
                 where: { id: v.id },
@@ -132,20 +120,12 @@ module.exports = {
               });
             }
 
-            // 2) Refund баланса
-            if (
-              userId &&
-              Number.isFinite(priceUsd) &&
-              priceUsd > 0
-            ) {
-              const u = await userQ.findOne({
-                where: { id: userId },
-                transacting: trx,
-              });
+            // refund пользователю
+            if (userId && Number.isFinite(priceUsd) && priceUsd > 0) {
+              const u = await userQ.findOne({ where: { id: userId }, transacting: trx });
               if (u) {
                 const cur = Number(u.balanceUsd || 0);
                 const next = +(cur + priceUsd).toFixed(6);
-
                 await userQ.update({
                   where: { id: userId },
                   data: { balanceUsd: next },
@@ -158,7 +138,7 @@ module.exports = {
               }
             } else {
               strapi.log.info(
-                `[CRON] canceled doc=${documentId} (no refund: priceUsd=${priceUsd}, userId=${userId})`
+                `[CRON] canceled doc=${documentId} (no refund priceUsd=${priceUsd}, userId=${userId})`
               );
             }
           });
@@ -169,8 +149,7 @@ module.exports = {
     },
 
     options: {
-      // ✅ Надёжный cron-формат без секунд (раз в минуту)
-      rule: "*/1 * * * *",
+      rule: "*/1 * * * *", // раз в минуту
     },
   },
 };

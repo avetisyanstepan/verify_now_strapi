@@ -504,7 +504,7 @@ export interface ApiActivationActivation extends Struct.CollectionTypeSchema {
     singularName: 'activation';
   };
   options: {
-    draftAndPublish: true;
+    draftAndPublish: false;
   };
   attributes: {
     code: Schema.Attribute.String;
